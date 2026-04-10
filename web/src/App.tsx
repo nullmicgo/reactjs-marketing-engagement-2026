@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { AdminPortal } from './admin/AdminPortal'
 import { CampaignDetails } from './CampaignDetails'
 import { RegistrationComplete } from './RegistrationComplete'
 import { RegistrationForm } from './RegistrationForm'
@@ -7,6 +8,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<CampaignDetails />} />
+      <Route path="/admin" element={<AdminPortal />} />
       <Route path="/registration" element={<RegistrationForm />} />
       <Route
         path="/registration/complete"

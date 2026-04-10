@@ -1,5 +1,7 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import './RegistrationComplete.css'
+
+const DEFAULT_SEMINAR_DATETIME = '4 May 2026, 14:30 - 16:00'
 
 const qrImage = '/figma-assets/d6c8bba753575645d476d81a9d2a21b0b4ec6106.png'
 
@@ -24,7 +26,16 @@ function SuccessIllustration() {
   )
 }
 
+type CompleteLocationState = {
+  seminarDateTime?: string
+}
+
 export function RegistrationComplete() {
+  const location = useLocation()
+  const state = location.state as CompleteLocationState | null
+  const seminarDateTime =
+    state?.seminarDateTime?.trim() || DEFAULT_SEMINAR_DATETIME
+
   return (
     <div className="rc-shell">
       <article
@@ -40,7 +51,7 @@ export function RegistrationComplete() {
         <div className="rc-details">
           <div className="rc-row">
             <span className="rc-row__label">Seminar date and time</span>
-            <span className="rc-row__value">4 May 2026, 14:30 - 16:00</span>
+            <span className="rc-row__value">{seminarDateTime}</span>
           </div>
           <div className="rc-row rc-row--venue">
             <div className="rc-row__inner">

@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from 'react'
 import { useCallback, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import './PasswordGate.css'
 
 const STORAGE_KEY = 'marketing-engagement-auth-v1'
@@ -10,6 +11,7 @@ type PasswordGateProps = {
 }
 
 export function PasswordGate({ children }: PasswordGateProps) {
+  const location = useLocation()
   const [unlocked, setUnlocked] = useState(() => {
     try {
       return sessionStorage.getItem(STORAGE_KEY) === '1'
@@ -38,6 +40,10 @@ export function PasswordGate({ children }: PasswordGateProps) {
     },
     [value],
   )
+
+  if (location.pathname.startsWith('/admin')) {
+    return <>{children}</>
+  }
 
   if (unlocked) {
     return <>{children}</>

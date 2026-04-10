@@ -1,5 +1,16 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  buildRegistrationSubmission,
+  CONTACT_OPTION_WHATSAPP,
+  contactMethodNeedsDetail,
+} from './lib/registrationDocument'
+import {
+  focusFirstInvalidField,
+  type RegistrationFieldKey,
+  validateRegistrationForm,
+} from './lib/registrationFormValidation'
+import { createRegistrationSubmission } from './lib/sanity'
 import './RegistrationForm.css'
 
 /** Layout matches Figma frames `2076:8463` and `2076:11328` (same screen, different content states). */
@@ -56,15 +67,25 @@ function RadioGroup<T extends string>({
   options,
   value,
   onChange,
+  error,
 }: {
   name: string
   legend: string
   options: readonly T[]
   value: T | ''
   onChange: (v: T) => void
+  error?: string
 }) {
+  const groupId = `rf-group-${name}`
   return (
-    <div className="rf-radio-block" role="group" aria-labelledby={`${name}-legend`}>
+    <div
+      id={groupId}
+      className={`rf-radio-block${error ? ' rf-radio-block--invalid' : ''}`}
+      role="group"
+      aria-labelledby={`${name}-legend`}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? `${name}-field-error` : undefined}
+    >
       <p id={`${name}-legend`} className="rf-radio-block__q">
         {legend}
       </p>
@@ -80,6 +101,11 @@ function RadioGroup<T extends string>({
           <span>{opt}</span>
         </label>
       ))}
+      {error ? (
+        <p id={`${name}-field-error`} className="rf-field__error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -98,14 +124,33 @@ export function RegistrationForm() {
   const [contactMethod, setContactMethod] = useState<
     (typeof contactOptions)[number] | ''
   >('')
+  const [contactMethodDetail, setContactMethodDetail] = useState('')
   const [meetLanguage, setMeetLanguage] = useState<
     (typeof languageOptions)[number] | ''
   >('')
   const [products, setProducts] = useState<Set<string>>(() => new Set())
   const [consentDm, setConsentDm] = useState(false)
   const [consentFp, setConsentFp] = useState(false)
+  const [seminarDateIso, setSeminarDateIso] = useState('2026-05-04')
+  const [seminarTimeStart, setSeminarTimeStart] = useState('14:30')
+  const [seminarTimeEnd, setSeminarTimeEnd] = useState('16:00')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<RegistrationFieldKey, string>>
+  >({})
+
+  const clearField = useCallback((key: RegistrationFieldKey) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }, [])
 
   function toggleProduct(id: string) {
+    clearField('products')
     setProducts((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -114,9 +159,72 @@ export function RegistrationForm() {
     })
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    navigate('/registration/complete')
+    setSubmitError(null)
+    const { valid, errors } = validateRegistrationForm({
+      plannerCode,
+      plannerSurname,
+      surname,
+      firstName,
+      mobile,
+      email,
+      seminarDateIso,
+      seminarTimeStart,
+      seminarTimeEnd,
+      hkVisit,
+      income,
+      meetSlot,
+      contactMethod,
+      contactMethodDetail,
+      meetLanguage,
+      products,
+      consentDm,
+      consentFp,
+    })
+    if (!valid) {
+      setFieldErrors(errors)
+      window.setTimeout(() => focusFirstInvalidField(errors), 0)
+      return
+    }
+    setFieldErrors({})
+    setSubmitting(true)
+    try {
+      const doc = buildRegistrationSubmission({
+        plannerCode,
+        plannerSurname,
+        surname,
+        firstName,
+        mobile,
+        email,
+        seminarDateIso,
+        seminarTimeStart,
+        seminarTimeEnd,
+        hkVisit,
+        income,
+        meetSlot,
+        contactMethod,
+        contactMethodDetail,
+        meetLanguage,
+        products,
+        consentDm,
+        consentFp,
+      })
+      await createRegistrationSubmission(doc)
+      navigate('/registration/complete', {
+        state: {
+          seminarDateTime: `${doc.seminarDate}, ${doc.seminarTime}`,
+        },
+      })
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Could not save your registration. Please try again.'
+      setSubmitError(msg)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -168,11 +276,23 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-fp-code"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.plannerCode ? ' rf-input--error' : ''}`}
                   value={plannerCode}
-                  onChange={(e) => setPlannerCode(e.target.value)}
+                  onChange={(e) => {
+                    clearField('plannerCode')
+                    setPlannerCode(e.target.value)
+                  }}
                   autoComplete="off"
+                  aria-invalid={fieldErrors.plannerCode ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.plannerCode ? 'rf-fp-code-error' : undefined
+                  }
                 />
+                {fieldErrors.plannerCode ? (
+                  <p id="rf-fp-code-error" className="rf-field__error" role="alert">
+                    {fieldErrors.plannerCode}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rf-field">
@@ -181,11 +301,23 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-fp-surname"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.plannerSurname ? ' rf-input--error' : ''}`}
                   value={plannerSurname}
-                  onChange={(e) => setPlannerSurname(e.target.value)}
+                  onChange={(e) => {
+                    clearField('plannerSurname')
+                    setPlannerSurname(e.target.value)
+                  }}
                   autoComplete="family-name"
+                  aria-invalid={fieldErrors.plannerSurname ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.plannerSurname ? 'rf-fp-surname-error' : undefined
+                  }
                 />
+                {fieldErrors.plannerSurname ? (
+                  <p id="rf-fp-surname-error" className="rf-field__error" role="alert">
+                    {fieldErrors.plannerSurname}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rf-field">
@@ -194,12 +326,24 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-surname"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.surname ? ' rf-input--error' : ''}`}
                   value={surname}
-                  onChange={(e) => setSurname(e.target.value)}
+                  onChange={(e) => {
+                    clearField('surname')
+                    setSurname(e.target.value)
+                  }}
                   placeholder="e.g. Chan (as per ID / passport)"
                   autoComplete="family-name"
+                  aria-invalid={fieldErrors.surname ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.surname ? 'rf-surname-error' : undefined
+                  }
                 />
+                {fieldErrors.surname ? (
+                  <p id="rf-surname-error" className="rf-field__error" role="alert">
+                    {fieldErrors.surname}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rf-field">
@@ -208,12 +352,24 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-first"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.firstName ? ' rf-input--error' : ''}`}
                   value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
+                  onChange={(e) => {
+                    clearField('firstName')
+                    setFirstName(e.target.value)
+                  }}
                   placeholder="e.g. Tai Man (as per ID / passport)"
                   autoComplete="given-name"
+                  aria-invalid={fieldErrors.firstName ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.firstName ? 'rf-first-error' : undefined
+                  }
                 />
+                {fieldErrors.firstName ? (
+                  <p id="rf-first-error" className="rf-field__error" role="alert">
+                    {fieldErrors.firstName}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rf-field">
@@ -222,14 +378,26 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-mobile"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.mobile ? ' rf-input--error' : ''}`}
                   type="tel"
                   inputMode="tel"
                   value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
+                  onChange={(e) => {
+                    clearField('mobile')
+                    setMobile(e.target.value)
+                  }}
                   placeholder="e.g. 9123 4567"
                   autoComplete="tel"
+                  aria-invalid={fieldErrors.mobile ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.mobile ? 'rf-mobile-error' : undefined
+                  }
                 />
+                {fieldErrors.mobile ? (
+                  <p id="rf-mobile-error" className="rf-field__error" role="alert">
+                    {fieldErrors.mobile}
+                  </p>
+                ) : null}
               </div>
 
               <div className="rf-field">
@@ -238,37 +406,120 @@ export function RegistrationForm() {
                 </label>
                 <input
                   id="rf-email"
-                  className="rf-input"
+                  className={`rf-input${fieldErrors.email ? ' rf-input--error' : ''}`}
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    clearField('email')
+                    setEmail(e.target.value)
+                  }}
                   placeholder="e.g. name@mail.com"
                   autoComplete="email"
+                  aria-invalid={fieldErrors.email ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.email
+                      ? 'rf-email-error'
+                      : 'rf-email-hint'
+                  }
                 />
-                <p className="rf-field-hint">
+                {fieldErrors.email ? (
+                  <p id="rf-email-error" className="rf-field__error" role="alert">
+                    {fieldErrors.email}
+                  </p>
+                ) : null}
+                <p id="rf-email-hint" className="rf-field-hint">
                   The email address you enter will be used to receive the QR code
                   and details for seminar and gift.
                 </p>
               </div>
 
               <div className="rf-field">
-                <span className="rf-label rf-label--medium">Seminar date</span>
+                <label
+                  className="rf-label rf-label--medium"
+                  htmlFor="rf-seminar-date"
+                >
+                  Seminar date
+                </label>
                 <input
-                  className="rf-input rf-input--readonly"
-                  readOnly
-                  value="4 May 2026"
-                  aria-label="Seminar date"
+                  id="rf-seminar-date"
+                  className={`rf-input rf-input--date${fieldErrors.seminarDate ? ' rf-input--error' : ''}`}
+                  type="date"
+                  value={seminarDateIso}
+                  min="2026-01-01"
+                  max="2027-12-31"
+                  onChange={(e) => {
+                    clearField('seminarDate')
+                    setSeminarDateIso(e.target.value)
+                  }}
+                  aria-invalid={fieldErrors.seminarDate ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.seminarDate
+                      ? 'rf-seminar-date-error'
+                      : 'rf-seminar-date-hint'
+                  }
                 />
+                {fieldErrors.seminarDate ? (
+                  <p id="rf-seminar-date-error" className="rf-field__error" role="alert">
+                    {fieldErrors.seminarDate}
+                  </p>
+                ) : null}
+                <p id="rf-seminar-date-hint" className="rf-field-hint">
+                  Use the calendar control to pick the seminar date.
+                </p>
               </div>
 
               <div className="rf-field">
-                <span className="rf-label rf-label--medium">Seminar time</span>
-                <input
-                  className="rf-input rf-input--readonly"
-                  readOnly
-                  value="14:30 - 16:00"
-                  aria-label="Seminar time"
-                />
+                <span className="rf-label rf-label--medium" id="rf-seminar-time-legend">
+                  Seminar time
+                </span>
+                <div
+                  className="rf-time-slots"
+                  role="group"
+                  aria-labelledby="rf-seminar-time-legend"
+                  aria-invalid={fieldErrors.seminarTime ? true : undefined}
+                  aria-describedby={
+                    fieldErrors.seminarTime ? 'rf-seminar-time-error' : undefined
+                  }
+                >
+                  <div className="rf-time-slot">
+                    <label className="rf-time-slot__label" htmlFor="rf-time-start">
+                      From
+                    </label>
+                    <input
+                      id="rf-time-start"
+                      className={`rf-input rf-input--time${fieldErrors.seminarTime ? ' rf-input--error' : ''}`}
+                      type="time"
+                      value={seminarTimeStart}
+                      onChange={(e) => {
+                        clearField('seminarTime')
+                        setSeminarTimeStart(e.target.value)
+                      }}
+                    />
+                  </div>
+                  <div className="rf-time-slot">
+                    <label className="rf-time-slot__label" htmlFor="rf-time-end">
+                      To
+                    </label>
+                    <input
+                      id="rf-time-end"
+                      className={`rf-input rf-input--time${fieldErrors.seminarTime ? ' rf-input--error' : ''}`}
+                      type="time"
+                      value={seminarTimeEnd}
+                      onChange={(e) => {
+                        clearField('seminarTime')
+                        setSeminarTimeEnd(e.target.value)
+                      }}
+                    />
+                  </div>
+                </div>
+                {fieldErrors.seminarTime ? (
+                  <p id="rf-seminar-time-error" className="rf-field__error" role="alert">
+                    {fieldErrors.seminarTime}
+                  </p>
+                ) : null}
+                <p className="rf-field-hint">
+                  Choose start and end time; your device will show a clock picker.
+                </p>
               </div>
 
               <RadioGroup
@@ -276,7 +527,11 @@ export function RegistrationForm() {
                 legend="Are you visiting Hong Kong for business or leisure?"
                 options={hkVisitOptions}
                 value={hkVisit}
-                onChange={setHkVisit}
+                onChange={(v) => {
+                  clearField('hkVisit')
+                  setHkVisit(v)
+                }}
+                error={fieldErrors.hkVisit}
               />
             </section>
 
@@ -291,7 +546,11 @@ export function RegistrationForm() {
                 legend="Monthly income level"
                 options={incomeOptions}
                 value={income}
-                onChange={setIncome}
+                onChange={(v) => {
+                  clearField('income')
+                  setIncome(v)
+                }}
+                error={fieldErrors.income}
               />
             </section>
 
@@ -306,26 +565,92 @@ export function RegistrationForm() {
                 legend="Preferred meeting time"
                 options={meetSlotOptions}
                 value={meetSlot}
-                onChange={setMeetSlot}
+                onChange={(v) => {
+                  clearField('meetSlot')
+                  setMeetSlot(v)
+                }}
+                error={fieldErrors.meetSlot}
               />
               <RadioGroup
                 name="contact"
                 legend="Preferred contact method"
                 options={contactOptions}
                 value={contactMethod}
-                onChange={setContactMethod}
+                onChange={(v) => {
+                  clearField('contactMethod')
+                  clearField('contactMethodDetail')
+                  setContactMethod(v)
+                  if (!contactMethodNeedsDetail(v)) {
+                    setContactMethodDetail('')
+                  }
+                }}
+                error={fieldErrors.contactMethod}
               />
+              {contactMethodNeedsDetail(contactMethod) ? (
+                <div className="rf-field">
+                  <label
+                    className="rf-label rf-label--medium"
+                    htmlFor="rf-contact-spec"
+                  >
+                    {contactMethod === CONTACT_OPTION_WHATSAPP
+                      ? 'WhatsApp number or ID'
+                      : 'WeChat ID'}
+                  </label>
+                  <input
+                    id="rf-contact-spec"
+                    className={`rf-input${fieldErrors.contactMethodDetail ? ' rf-input--error' : ''}`}
+                    value={contactMethodDetail}
+                    onChange={(e) => {
+                      clearField('contactMethodDetail')
+                      setContactMethodDetail(e.target.value)
+                    }}
+                    placeholder={
+                      contactMethod === CONTACT_OPTION_WHATSAPP
+                        ? 'e.g. +852 9123 4567 or WhatsApp name'
+                        : 'e.g. your WeChat ID'
+                    }
+                    autoComplete="off"
+                    aria-invalid={fieldErrors.contactMethodDetail ? true : undefined}
+                    aria-describedby={
+                      fieldErrors.contactMethodDetail
+                        ? 'rf-contact-spec-error'
+                        : undefined
+                    }
+                  />
+                  {fieldErrors.contactMethodDetail ? (
+                    <p
+                      id="rf-contact-spec-error"
+                      className="rf-field__error"
+                      role="alert"
+                    >
+                      {fieldErrors.contactMethodDetail}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <RadioGroup
                 name="meet-lang"
                 legend="Preferred language"
                 options={languageOptions}
                 value={meetLanguage}
-                onChange={setMeetLanguage}
+                onChange={(v) => {
+                  clearField('meetLanguage')
+                  setMeetLanguage(v)
+                }}
+                error={fieldErrors.meetLanguage}
               />
             </section>
 
-            <div className="rf-section">
+            <div
+              id="rf-group-products"
+              className={`rf-section${fieldErrors.products ? ' rf-products-section--invalid' : ''}`}
+            >
               <h2 className="rf-h2">Interested products/services</h2>
+              {fieldErrors.products ? (
+                <p id="rf-products-error" className="rf-field__error" role="alert">
+                  {fieldErrors.products}
+                </p>
+              ) : null}
               <div className="rf-products">
                 {productTiles.map((tile) => (
                   <button
@@ -348,7 +673,15 @@ export function RegistrationForm() {
               </div>
             </div>
 
-            <div className="rf-section rf-legal">
+            <div
+              id="rf-group-consents"
+              className={`rf-section rf-legal${fieldErrors.consentDm || fieldErrors.consentFp ? ' rf-consents--invalid' : ''}`}
+              role="group"
+              aria-labelledby="rf-consents-legend"
+            >
+              <p id="rf-consents-legend" className="rf-visually-hidden">
+                Consents required to register
+              </p>
               <p>
                 To provide you with the latest news, offers, promotions, and direct
                 marketing activities (including events, privileges, and membership
@@ -371,7 +704,11 @@ export function RegistrationForm() {
                   id="rf-c-dm"
                   type="checkbox"
                   checked={consentDm}
-                  onChange={(e) => setConsentDm(e.target.checked)}
+                  onChange={(e) => {
+                    clearField('consentDm')
+                    setConsentDm(e.target.checked)
+                  }}
+                  aria-invalid={fieldErrors.consentDm ? true : undefined}
                 />
                 <label htmlFor="rf-c-dm">
                   I agree that AIA Hong Kong may use my personal data for direct
@@ -384,7 +721,11 @@ export function RegistrationForm() {
                   id="rf-c-fp"
                   type="checkbox"
                   checked={consentFp}
-                  onChange={(e) => setConsentFp(e.target.checked)}
+                  onChange={(e) => {
+                    clearField('consentFp')
+                    setConsentFp(e.target.checked)
+                  }}
+                  aria-invalid={fieldErrors.consentFp ? true : undefined}
                 />
                 <label htmlFor="rf-c-fp">
                   I agree that AIA Hong Kong may use the personal data I provided
@@ -392,6 +733,17 @@ export function RegistrationForm() {
                   contact me.
                 </label>
               </div>
+
+              {fieldErrors.consentDm || fieldErrors.consentFp ? (
+                <div className="rf-consent-errors" role="alert">
+                  {fieldErrors.consentDm ? (
+                    <p className="rf-field__error">{fieldErrors.consentDm}</p>
+                  ) : null}
+                  {fieldErrors.consentFp ? (
+                    <p className="rf-field__error">{fieldErrors.consentFp}</p>
+                  ) : null}
+                </div>
+              ) : null}
 
               <p>
                 By clicking &quot;<strong>Register,</strong>&quot; I confirm that I
@@ -418,8 +770,13 @@ export function RegistrationForm() {
               </p>
             </div>
 
-            <button type="submit" className="rf-btn">
-              Register
+            {submitError ? (
+              <p className="rf-submit-error" role="alert">
+                {submitError}
+              </p>
+            ) : null}
+            <button type="submit" className="rf-btn" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Register'}
             </button>
           </form>
         </div>
